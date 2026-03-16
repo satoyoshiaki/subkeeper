@@ -3,7 +3,7 @@ create extension if not exists "uuid-ossp";
 
 -- Subscriptions table
 create table subscriptions (
-  id uuid primary key,
+  id text primary key,
   user_id uuid references auth.users not null,
   service_name text not null,
   category text not null,
