@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Subscription, SubscriptionFormData, CATEGORIES, STATUS_LABELS } from '@/types/subscription';
-import { localStorageRepository } from '@/lib/repository';
 import { SAMPLE_SUBSCRIPTIONS } from '@/lib/subscription';
+import { useSubscriptions } from '@/hooks/useSubscriptions';
 import { SubscriptionCard } from '@/components/subscription/SubscriptionCard';
 import { SubscriptionForm } from '@/components/subscription/SubscriptionForm';
 import { SummaryCards } from '@/components/subscription/SummaryCards';
 import { AlertSection } from '@/components/subscription/AlertSection';
+import { MigrationDialog } from '@/components/MigrationDialog';
+import { CsvButtons } from '@/components/csv/CsvButtons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -37,22 +39,17 @@ import {
 import { Plus, Search, LayoutDashboard, Database } from 'lucide-react';
 
 export default function Home() {
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const { subscriptions, isLoaded, create, update, remove, createBulk } = useSubscriptions();
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Subscription | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterCard, setFilterCard] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
-
-  useEffect(() => {
-    const data = localStorageRepository.getAll();
-    setSubscriptions(data);
-    setIsLoaded(true);
-  }, []);
 
   const allCards = useMemo(() => {
     const cards = subscriptions.map((s) => s.paymentCard).filter(Boolean);
@@ -70,38 +67,38 @@ export default function Home() {
     });
   }, [subscriptions, searchQuery, filterCategory, filterCard, filterStatus]);
 
-  const refresh = () => setSubscriptions(localStorageRepository.getAll());
-
-  const handleAdd = (data: SubscriptionFormData) => {
+  const handleAdd = async (data: SubscriptionFormData) => {
+    setIsSaving(true);
     const now = new Date().toISOString();
     const newSub: Subscription = { ...data, id: uuidv4(), createdAt: now, updatedAt: now };
-    localStorageRepository.create(newSub);
-    refresh();
-    setIsFormOpen(false);
+    try {
+      await create(newSub);
+      setIsFormOpen(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleEdit = (data: SubscriptionFormData) => {
+  const handleEdit = async (data: SubscriptionFormData) => {
     if (!editTarget) return;
+    setIsSaving(true);
     const updated: Subscription = { ...editTarget, ...data, updatedAt: new Date().toISOString() };
-    localStorageRepository.update(updated);
-    refresh();
-    setEditTarget(null);
+    try {
+      await update(updated);
+      setEditTarget(null);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    localStorageRepository.delete(deleteTarget.id);
-    refresh();
+    await remove(deleteTarget.id);
     setDeleteTarget(null);
   };
 
-  const loadSampleData = () => {
-    SAMPLE_SUBSCRIPTIONS.forEach((sub) => {
-      if (!localStorageRepository.getById(sub.id)) {
-        localStorageRepository.create(sub);
-      }
-    });
-    refresh();
+  const loadSampleData = async () => {
+    await createBulk(SAMPLE_SUBSCRIPTIONS);
   };
 
   if (!isLoaded) {
@@ -115,15 +112,18 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <LayoutDashboard className="h-6 w-6 text-blue-600" />
             <h1 className="text-xl font-bold text-gray-900">SubKeeper</h1>
           </div>
-          <Button onClick={() => setIsFormOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-1" />
-            追加
-          </Button>
+          <div className="flex items-center gap-2">
+            <CsvButtons subscriptions={subscriptions} createBulk={createBulk} />
+            <Button onClick={() => setIsFormOpen(true)} size="sm">
+              <Plus className="h-4 w-4 mr-1" />
+              追加
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -230,15 +230,24 @@ export default function Home() {
         </section>
       </main>
 
+      {/* Migration Dialog */}
+      <MigrationDialog onMigrate={createBulk} />
+
+      {/* Add Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>サブスクリプションを追加</DialogTitle>
           </DialogHeader>
-          <SubscriptionForm onSubmit={handleAdd} onCancel={() => setIsFormOpen(false)} />
+          <SubscriptionForm
+            onSubmit={handleAdd}
+            onCancel={() => setIsFormOpen(false)}
+            disabled={isSaving}
+          />
         </DialogContent>
       </Dialog>
 
+      {/* Edit Dialog */}
       <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -249,11 +258,13 @@ export default function Home() {
               initialData={editTarget}
               onSubmit={handleEdit}
               onCancel={() => setEditTarget(null)}
+              disabled={isSaving}
             />
           )}
         </DialogContent>
       </Dialog>
 
+      {/* Delete Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -42,9 +42,10 @@ interface Props {
   initialData?: Subscription;
   onSubmit: (data: SubscriptionFormData) => void;
   onCancel: () => void;
+  disabled?: boolean;
 }
 
-export function SubscriptionForm({ initialData, onSubmit, onCancel }: Props) {
+export function SubscriptionForm({ initialData, onSubmit, onCancel, disabled }: Props) {
   const {
     register,
     handleSubmit,
@@ -272,10 +273,12 @@ export function SubscriptionForm({ initialData, onSubmit, onCancel }: Props) {
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={disabled}>
           キャンセル
         </Button>
-        <Button type="submit">{initialData ? '更新する' : '追加する'}</Button>
+        <Button type="submit" disabled={disabled}>
+          {disabled ? '保存中...' : (initialData ? '更新する' : '追加する')}
+        </Button>
       </div>
     </form>
   );
